@@ -1,70 +1,26 @@
 (DOI as text) =>
-// Unpaywall APIを利用して、指定されたDOI（デジタルオブジェクト識別子）に対応する論文情報を取得する関数
+// UnpaywallのAPIにDOIを送信して返ってくるデータを取り込む関数
 let
-        // Unpaywall APIにアクセスしてデータを取得する部分
         unpaywall = Web.Contents("https://api.unpaywall.org/v2", 
-            [ 
-                // リクエストURLにDOIを相対パスとして追加
-                RelativePath = DOI, 
-                // APIキーとしてメールアドレスを使用（Unpaywallの仕様に基づく認証方法）
-                ApiKeyName = "email", 
-                // 特定のHTTPステータスコード（400, 404, 500）の手動処理を有効化
-                ManualStatusHandling = {400, 404, 500} 
-            ]),
-        
-        // 取得したレスポンスデータのメタデータからHTTPステータスコードを取得
+            [ RelativePath = DOI , ApiKeyName = "email" , ManualStatusHandling={400, 404, 500} ]),
+        // ステータスコードのチェック
         status = Value.Metadata(unpaywall)[Response.Status], 
-        
-        // バイナリ形式のAPIレスポンスをテキストの行ごとに分割し、テーブル形式に変換
         unpaywallSource = Table.FromColumns({Lines.FromBinary(unpaywall, null, null)}),
-        
-        // テーブルの各行（JSON文字列）を解析して、レコード形式に変換
+        // Transform each line using Json.Document
         #"Transformed Column" = Table.TransformColumns(unpaywallSource, {"Column1", Json.Document}),
-        
-        // 必要なデータフィールド（DOI、ISSN、ジャーナル名、論文タイトルなど）を展開し、テーブルに追加
+        // DOI, ISSN, Journal Name, Article title, is_oa, oa Status, Best oa Locationの値を取り出してテーブルにセット
         #"展開された Column1" = Table.ExpandRecordColumn(
-        #"Transformed Column", 
-        "Column1", // 展開対象のカラム名
-        { 
-            "doi",                  // 論文のDOI（デジタルオブジェクト識別子）
-            "journal_issn_l",       // ジャーナルのISSN
-            "journal_name",         // ジャーナル名
-            "title",                // 論文タイトル
-            "genre",                // 論文のジャンル（例: "journal-article"）
-            "published_date",       // 発行日
-            "is_oa",                // オープンアクセスであるか（True/False）
-            "oa_status",            // オープンアクセスのステータス（例: "gold"）
-            "best_oa_location"      // 最適なオープンアクセスの情報（ネストされたデータ）
-        },
-        { 
-            "DOI",                  // 展開後のカラム名: DOI
-            "issn",                 // 展開後のカラム名: ISSN
-            "journal_name",         // 展開後のカラム名: ジャーナル名
-            "article title",        // 展開後のカラム名: 論文タイトル
-            "genre",                // 展開後のカラム名: ジャンル
-            "published_date",       // 展開後のカラム名: 発行日
-            "is_oa",                // 展開後のカラム名: オープンアクセスフラグ
-            "oa_status",            // 展開後のカラム名: オープンアクセスステータス
-            "Column1.best_oa_location" // 展開後のカラム名: ネストされた最適なオープンアクセス情報
-        }
+        #"Transformed Column", "Column1", 
+        {"doi", "journal_issn_l", "journal_name", "title",         "genre", "published_date", "is_oa", "oa_status", "best_oa_location"},
+        {"DOI", "issn",           "journal_name", "article title", "genre", "published_date", "is_oa", "oa_status", "Column1.best_oa_location"}
         ),
-        
-        // ネストされた「best_oa_location」から、ライセンス情報とURLを展開
+        // Column1.best_oa_locationからのoa_location.license,oa_uri,url_for_pdfを取り出してテーブルに追加
         #"unpaywalldata" = Table.ExpandRecordColumn(
-            #"展開された Column1", 
-            "Column1.best_oa_location", // 展開対象のカラム名
-            { 
-                "license",            // 論文のライセンス情報（例: "CC-BY"）
-                "url",                // オープンアクセス版へのURL
-                "url_for_pdf"         // PDF形式でのダウンロードURL
-            },
-            { 
-                "oa_location.license",       // 展開後のカラム名: ライセンス情報
-                "oa_location.url",           // 展開後のカラム名: オープンアクセスURL
-                "oa_location.url_for_pdf"    // 展開後のカラム名: PDFダウンロードURL
-            }
-        )
+            #"展開された Column1", "Column1.best_oa_location", 
+            {"license",            "url",              "url_for_pdf"}, 
+            {"oa_location.license","oa_location.url",  "oa_location.url_for_pdf"}
+            )
     in
-        // もしステータスコードが404（データが見つからない場合）ならnullを返す。それ以外の場合は展開後のテーブルを返す。
+        // 404エラーならnullを返す
         if status = 404 then null else 
         #"unpaywalldata"
