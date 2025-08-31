@@ -28,14 +28,12 @@ let
         {"First OA Location-License","First OA Location-URL",  "First OA Location-URL for PDF"}
     ),
     #"展開された Z Authors" = Table.ExpandListColumn(#"first_oa_locations", "Z Authors"),
-    #"展開された Z Authors1" = Table.ExpandRecordColumn(#"展開された Z Authors", "Z Authors", {"given", "family", "sequence", "affiliation"}, {"First Author-given", "First Author-family", "First Author-sequence", "First Author-affiliation"}),
-    フィルターされた行 = Table.SelectRows(#"展開された Z Authors1", each ([#"First Author-sequence"] = "first")),
-    // Affiliationをさらに展開（複数の所属がある場合を考慮）
-    #"Expanded Affiliation" = Table.TransformColumns(
-        フィルターされた行, 
-        {"First Author-affiliation", each if _ is null then null else Text.Combine(List.Transform(_, each _[name]), "|"), type text}
-    )
+    #"展開された Z Authors1" = Table.ExpandRecordColumn(#"展開された Z Authors", "Z Authors", {"author_position", "raw_author_name", "raw_affiliation_strings"}, {"Author position", "Raw Author Name", "Raw Affiliation Strings"}),
+    フィルターされた行 = Table.SelectRows(#"展開された Z Authors1", each ([#"Author position"] = "first")),
+    #"Expanded Affiliation" = Table.TransformColumns(フィルターされた行, {"Raw Affiliation Strings", each Text.Combine(List.Transform(_, Text.From), "|"), type text}),
+    #"result" = Table.ReplaceErrorValues(#"Expanded Affiliation", {{"Raw Affiliation Strings", ""}})
+
 in
     // 404エラーならnullを返す
     if status = 404 then null else
-    #"Expanded Affiliation"
+    #"result"
