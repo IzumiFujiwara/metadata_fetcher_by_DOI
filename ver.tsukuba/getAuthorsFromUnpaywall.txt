@@ -12,19 +12,18 @@ let
     authorsList = if Record.HasFields(jsonResponse, "z_authors") 
         then Table.FromList(jsonResponse[z_authors], Splitter.SplitByNothing(), {"AuthorRecord"}) 
         else null,
-    // AuthorsList内のレコードを展開して必要な列を抽出
-    #"Expanded AuthorRecord" = Table.ExpandRecordColumn(
-        authorsList, 
-        "AuthorRecord", 
-        {"given", "family", "sequence", "affiliation"}, 
-        {"GivenName", "FamilyName", "Sequence", "Affiliation"}
+    #"ExpandAuthors" = Table.ExpandRecordColumn(authorsList, "AuthorRecord", {"author_position", "raw_author_name", "is_corresponding", "raw_affiliation_strings"}, {"author_position", "raw_author_name", "is_corresponding", "raw_affiliation_strings"}),
+    #"Rename Table" = Table.RenameColumns(
+        #"ExpandAuthors", 
+        {
+            {"author_position", "Author position"},
+            {"raw_author_name", "Raw Author Name"},
+            {"raw_affiliation_strings", "Raw Affiliation Strings"}
+        }
     ),
-    // Affiliationをさらに展開（複数の所属がある場合を考慮）
-    #"Expanded Affiliation" = Table.TransformColumns(
-        #"Expanded AuthorRecord", 
-        {"Affiliation", each if _ is null then null else Text.Combine(List.Transform(_, each _[name]), "|"), type text}
-    ),
-    追加されたインデックス = Table.AddIndexColumn(#"Expanded Affiliation", "order", 1, 1, Int64.Type),
-    並べ替えられた列 = Table.ReorderColumns(追加されたインデックス,{"order", "GivenName", "FamilyName", "Sequence", "Affiliation"})
+    #"Expanded Affiliation" = Table.TransformColumns(#"Rename Table", {"Raw Affiliation Strings", each Text.Combine(List.Transform(_, Text.From), "|"), type text}),
+    エラーチェック = Table.ReplaceErrorValues(#"Expanded Affiliation", {{"Raw Affiliation Strings", ""}}),
+    追加されたインデックス = Table.AddIndexColumn(エラーチェック, "order", 1, 1, Int64.Type),
+    #"result" = Table.ReorderColumns(追加されたインデックス,{"order", "Author position", "Raw Author Name", "Raw Affiliation Strings"})
 in
-    並べ替えられた列
+    #"result"
